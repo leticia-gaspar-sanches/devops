@@ -1,0 +1,163 @@
+name: CI/CD Pipeline - AWS
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  AWS_REGION: us-east-1
+  EKS_CLUSTER_NAME: hello-devops-dev
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Test application
+      run: |
+        python -m pytest tests/ -v
+
+  build-and-push:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    permissions:
+      id-token: write
+      contents: read
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+        aws-region: ${{ env.AWS_REGION }}
+        role-session-name: GitHubActions-${{ github.run_id }}
+    
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v1
+    
+    - name: Build, tag, and push image to Amazon ECR
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        ECR_REPOSITORY: hello-devops
+        IMAGE_TAG: ${{ github.sha }}
+      run: |
+        echo "Building image..."
+        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:latest .
+        
+        echo "Pushing image..."
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+        
+        echo "Image pushed successfully!"
+        echo "::set-output name=image::$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    permissions:
+      id-token: write
+      contents: read
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+        aws-region: ${{ env.AWS_REGION }}
+        role-session-name: GitHubActions-Deploy-${{ github.run_id }}
+    
+    - name: Update kube config
+      run: |
+        aws eks update-kubeconfig --name ${{ env.EKS_CLUSTER_NAME }} --region ${{ env.AWS_REGION }}
+    
+    - name: Deploy to EKS
+      env:
+        ECR_REGISTRY: ${{ needs.build-and-push.outputs.registry }}
+        ECR_REPOSITORY: hello-devops
+        IMAGE_TAG: ${{ github.sha }}
+      run: |
+        # Atualizar manifests com a nova imagem
+        ECR_IMAGE="${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
+        
+        # Atualizar job.yaml com a nova imagem
+        sed -i "s|image: hello-devops:latest|image: ${ECR_IMAGE}|g" k8s/job.yaml
+        
+        # Deletar job anterior se existir
+        kubectl delete job hello-devops-job --ignore-not-found=true
+        
+        # Aplicar novo job
+        kubectl apply -f k8s/job.yaml
+        
+        echo "Aguardando job completar..."
+        kubectl wait --for=condition=complete --timeout=300s job/hello-devops-job || true
+        
+        # Mostrar logs do job
+        echo "=== LOGS DO JOB ==="
+        kubectl logs job/hello-devops-job
+        
+        # Verificar status
+        echo "=== STATUS DO JOB ==="
+        kubectl describe job hello-devops-job
+        
+        # Aplicar deployment para execução contínua (opcional)
+        echo "=== APLICANDO DEPLOYMENT ==="
+        sed -i "s|image: hello-devops:latest|image: ${ECR_IMAGE}|g" k8s/deployment.yaml
+        kubectl apply -f k8s/deployment.yaml
+        
+        echo "=== PODS ATIVOS ==="
+        kubectl get pods -l app=hello-devops
+        
+        echo "✅ Deploy concluído com sucesso!"
+
+  security-scan:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    permissions:
+      id-token: write
+      contents: read
+      security-events: write
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+        aws-region: ${{ env.AWS_REGION }}
+    
+    - name: Login to Amazon ECR
+      uses: aws-actions/amazon-ecr-login@v1
+    
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: '${{ needs.build-and-push.outputs.registry }}/hello-devops:${{ github.sha }}'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+    
+    - name: Upload Trivy scan results to GitHub Security tab
+      uses: github/codeql-action/upload-sarif@v2
+      if: always()
+      with:
+        sarif_file: 'trivy-results.sarif'

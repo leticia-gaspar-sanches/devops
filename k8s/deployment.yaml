@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hello-devops-app
+  labels:
+    app: hello-devops
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: hello-devops
+  template:
+    metadata:
+      labels:
+        app: hello-devops
+    spec:
+      containers:
+      - name: hello-devops
+        image: hello-devops:latest
+        command: ["python", "main.py"]
+        resources:
+          requests:
+            memory: "32Mi"
+            cpu: "10m"
+          limits:
+            memory: "64Mi"
+            cpu: "50m"
+        # Como é um script que executa e termina, vamos usar restartPolicy
+      restartPolicy: Always

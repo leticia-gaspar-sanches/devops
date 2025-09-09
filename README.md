@@ -1,10 +1,10 @@
 # Hello DevOps - Projeto CI/CD com Infraestrutura como Código
 
-Um projeto **ultra minimalista** de CI/CD usando GitHub Actions, Docker, Kubernetes (EKS) e **Terraform** para provisionar toda a infraestrutura AWS.
+Um projeto de CI/CD usando GitHub Actions, Docker, Kubernetes (EKS) e Terraform para provisionar toda a infraestrutura AWS.
 
 ## 📋 Funcionalidade
 
-O projeto possui apenas uma função Python simples:
+O projeto possui apenas uma função Python:
 ```python
 def hello():
     return "Hello, DevOps!"
@@ -69,8 +69,8 @@ aws configure
 ### 2. Deploy da Infraestrutura
 ```bash
 # Clone o repositório
-git clone <seu-repo>
-cd hello-devops
+git clone <devops>
+cd devops
 
 # Execute o setup automático
 chmod +x scripts/setup-terraform.sh
@@ -112,8 +112,8 @@ devops/
 │   ├── outputs.tf            # Outputs
 │   ├── terraform.tfvars      # Valores das variáveis
 ├── k8s/
-│   ├── deployment.yaml       # Deployment Kubernetes  
-│   └── job.yaml              # Job Kubernetes
+│   ├── deployment.yml       # Deployment Kubernetes  
+│   └── job.yml              # Job Kubernetes
 ├── scripts/
 │   └── setup-tf.sh           # Setup automático
 ├── .github/
@@ -148,7 +148,7 @@ make outputs
 make configure-kubectl
 
 # Executar job manualmente
-kubectl apply -f k8s/job.yaml
+kubectl apply -f k8s/job.yml
 kubectl logs job/hello-devops-job
 
 # Ver pods
@@ -209,13 +209,13 @@ Como é um script simples, usamos **Kubernetes Jobs** ao invés de Deployments:
 
 ### 1. Executar como Job (execução única)
 ```bash
-kubectl apply -f k8s/job.yaml
+kubectl apply -f k8s/job.yml
 kubectl logs job/hello-devops-job
 ```
 
 ### 2. Executar como Deployment (execução contínua)
 ```bash
-kubectl apply -f k8s/deployment.yaml
+kubectl apply -f k8s/deployment.yml
 kubectl logs deployment/hello-devops-app
 ```
 
@@ -274,7 +274,7 @@ docker build -t hello-devops .
 docker run hello-devops
 
 # Executar Job no Kubernetes  
-kubectl apply -f k8s/job.yaml
+kubectl apply -f k8s/job.
 kubectl logs job/hello-devops-job
 
 # Limpar Job
